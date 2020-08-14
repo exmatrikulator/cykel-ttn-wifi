@@ -5,6 +5,7 @@ import atexit
 import requests
 import os
 import json
+import signal
 
 from prometheus_client import Gauge, start_http_server
 
@@ -54,13 +55,15 @@ def uplink_callback(msg, client):
 		if hasattr(msg.payload_fields, 'voltage'):
 			update['battery_voltage'] = msg.payload_fields.voltage
 
-		resp = requests.post(endpoint, headers=headers, data=update)
+		resp = requests.post(endpoint, headers=headers, data=update, timeout=3)
 		print(resp)
 		if hasattr(msg.payload_fields, 'voltage'):
 			voltgauge.labels(device_id=msg.dev_id).set(msg.payload_fields.voltage)
 		timegauge.labels(device_id=msg.dev_id).set(int(time.time()))
 		packgauge.set(int(time.time()))
 	except e:
+		print(e)
+	except requests.exceptions.RequestException as e:
 		print(e)
 
 def connect_callback(res, client):
@@ -84,8 +87,14 @@ mqtt_client.set_uplink_callback(uplink_callback)
 
 print('starting cykel-ttn-wifi')
 mqtt_client.connect()
-start_http_server(port, addr=host)
 print('serving metrics on %s:%s' % (host, port))
+
+def terminate(signal,frame):
+	print("got SIGTERM, exiting")
+	sys.exit(0)
+signal.signal(signal.SIGTERM, terminate)
+
+start_http_server(port, addr=host)
 
 try:
 	while 1:
